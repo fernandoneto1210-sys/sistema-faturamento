@@ -154,6 +154,7 @@
       <button class="nav-btn" data-view="analise-eventos">Análise Comparativa de Eventos</button>
       <button class="nav-btn" data-view="previsao">Motor Preditivo Avançado</button>
       <button class="nav-btn" data-view="importar">Importar Dados (CSV)</button>
+      <button class="nav-btn" data-view="calendario-operacional">Calendário Operacional</button>
       <button class="nav-btn" data-view="configuracoes">Configurações</button>
       <button class="nav-btn" data-view="backup">Backup / Dados</button>
       <button id="btnSair" class="nav-btn logout-btn" type="button" onclick="sairDoSistema()" title="Sair do sistema">⏻ Sair do sistema</button>
@@ -481,8 +482,8 @@
             </div>
             <div class="col-md-4 d-flex align-items-end justify-content-end">
               <button id="btnGerarPrevisao" class="btn btn-success btn-sm me-2">Rodar Motor Preditivo</button> <div class="form-check form-switch ms-3">
-                <input class="form-check-input" type="checkbox" id="prevTreatMissingClosed" checked>
-                <label class="form-check-label" for="prevTreatMissingClosed">Tratar dias sem dados como fechados</label>
+                <input class="form-check-input" type="checkbox" id="prevTreatMissingClosed">
+                <label class="form-check-label" for="prevTreatMissingClosed">Usar fechamento manual por ausência (não recomendado)</label>
               </div><div id="backtestResult" class="mt-3"></div>
               <button id="btnBacktest" class="btn btn-outline-info btn-sm ms-2" onclick="rodarBacktest()">⚙️ Rodar Backtest</button>
 
@@ -497,6 +498,7 @@
           <div class="col-md-3"><div class="card text-center"><h6 class="text-muted">Média Diária Projetada</h6><h4 id="prevMediaDiaria" class="text-primary">R$ 0,00</h4><small class="text-muted">Por dia útil/fim de semana</small></div></div>
           <div class="col-md-3"><div class="card text-center"><h6 class="text-muted">Total de Mesas Estimadas</h6><h4 id="prevTotalMesas" class="text-dark">0</h4><small class="text-muted">Fluxo total previsto</small></div></div>
         </div>
+        <div id="previsaoMetaResumo" class="alert alert-light border small">A meta gerencial será usada como âncora de planejamento quando houver cadastro para o mês projetado.</div>
         <div class="card">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="card-title mb-0">Auditoria Diária de Projeção vs Real</h5>
@@ -568,6 +570,30 @@
   </div>
   <button type="submit" class="btn btn-primary btn-sm">Salvar Parâmetros do Motor</button>
 </form>
+        </div>
+      </div>
+
+      <!-- CALENDARIO OPERACIONAL -->
+      <div id="calendario-operacional" class="view">
+        <div class="card no-print">
+          <h5 class="card-title">Calendário Operacional por Restaurante</h5>
+          <p class="text-muted small">Defina os dias habituais de abertura e registre exceções por data. A exceção da data sempre prevalece sobre a regra semanal.</p>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4"><label class="form-label">Restaurante</label><select id="calEstab" class="form-select" required onchange="carregarCalendarioOperacional()"></select></div>
+            <div class="col-md-8"><label class="form-label">Dias habituais de funcionamento</label><div id="calDiasSemana" class="d-flex flex-wrap gap-3"></div></div>
+          </div>
+          <div class="mt-3"><button type="button" class="btn btn-primary btn-sm" onclick="salvarCalendarioOperacional()">Salvar dias habituais</button></div>
+          <div id="calMsg" class="alert-message mt-2"></div>
+        </div>
+        <div class="card no-print">
+          <h6 class="card-title">Exceção para data especial</h6>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-3"><label class="form-label">Data</label><input type="date" id="calExcecaoData" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label">Situação</label><select id="calExcecaoSituacao" class="form-select"><option value="aberto">Aberto excepcionalmente</option><option value="fechado">Fechado excepcionalmente</option></select></div>
+            <div class="col-md-4"><label class="form-label">Motivo/observação</label><input type="text" id="calExcecaoMotivo" class="form-control" placeholder="Feriado, evento, manutenção..."></div>
+            <div class="col-md-2"><button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="salvarExcecaoOperacional()">Salvar exceção</button></div>
+          </div>
+          <div class="table-responsive mt-3"><table class="table table-sm table-striped"><thead><tr><th>Data</th><th>Situação</th><th>Motivo</th><th class="no-print">Ação</th></tr></thead><tbody id="calExcecoesTable"></tbody></table></div>
         </div>
       </div>
 
@@ -654,12 +680,16 @@
         ['faturamentos','estabelecimentos','metas','eventos','indicadoresDiarios','caixaEventos'].forEach(k => state[k] = state[k] || []);
         state.config = state.config || {};
         state.ajustesPrevisao = state.ajustesPrevisao || {};
+        state.config.operacional = state.config.operacional || { padroes: {}, excecoes: {} };
+        state.config.operacional.padroes = state.config.operacional.padroes || {};
+        state.config.operacional.excecoes = state.config.operacional.excecoes || {};
         if (!state.config.motor) state.config.motor = { inflacaoMensal: 0.33, pesoRecente: 70, outlierThreshold: 2.5, weatherApiKey: '', weatherCidade: '', groqApiKey: '', groqModel: 'llama-3.1-8b-instant' };
         if (state.config.motor.geminiApiKey && !state.config.motor.groqApiKey) state.config.motor.groqApiKey = state.config.motor.geminiApiKey;
         delete state.config.motor.geminiApiKey; delete state.config.motor.geminiModel;
         if (!state.config.motor.groqModel || state.config.motor.groqModel === 'llama-3.3-70b-versatile') state.config.motor.groqModel = 'llama-3.1-8b-instant';
         if (!state.config.motor.groqApiKey) state.config.motor.groqApiKey = '';
         if (!state.config.metasDiarias) state.config.metasDiarias = [0,0,0,0,0,0,0];
+         state.config.metasDiariasPorContexto = state.config.metasDiariasPorContexto || {};
         
         let fatMap = new Map(); state.faturamentos.forEach(f => fatMap.set(f.data + '_' + f.estabelecimentoId, f)); state.faturamentos = Array.from(fatMap.values());
         let indMap = new Map(); state.indicadoresDiarios.forEach(i => indMap.set(i.data + '_' + i.estabelecimentoId, i)); state.indicadoresDiarios = Array.from(indMap.values());
@@ -670,9 +700,12 @@
         const resposta = await fetch('dados.json?versao=' + Date.now(), { cache: 'no-store' });
         if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
         const dadosExternos = await resposta.json();
-        localStorage.setItem('biPrevisaoState', JSON.stringify(dadosExternos));
+        // O arquivo externo só inicializa a aplicação; nunca sobrescreve alterações salvas pelo usuário.
+        if (!localStorage.getItem('biPrevisaoState')) {
+          localStorage.setItem('biPrevisaoState', JSON.stringify(dadosExternos));
+        }
         loadState();
-        console.info('Dados externos carregados com sucesso.');
+        console.info('Dados carregados com sucesso.');
       } catch (erroExterno) {
         console.warn('Não foi possível carregar dados.json; usando dados locais.', erroExterno);
         loadState();
@@ -690,7 +723,7 @@
       if (val) sel.value = val;
     }
     function fillSelects() {
-      ['fatEstab','histEstab','metaEstab','eventoEstab','prevEstab','dashboardEstabFilter','indEstab','indEstabFilter'].forEach(id => fillSelect(id));
+      ['fatEstab','histEstab','metaEstab','eventoEstab','prevEstab','dashboardEstabFilter','indEstab','indEstabFilter','calEstab'].forEach(id => fillSelect(id));
       fillSelect('metaMes');
       const t = new Date(); const cm = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0');
       if ($('metaMes')) $('metaMes').value = cm;
@@ -716,6 +749,7 @@
       if (viewId === 'eventos') renderEventos();
       if (viewId === 'analise-eventos') { fillAnaliseEventosSelect(); renderAnaliseEvento(); }
       if (viewId === 'previsao') renderPrevisao();
+      if (viewId === 'calendario-operacional') { if (!$('calEstab').value) $('calEstab').value = state.estabelecimentos[0]?.id || ''; carregarCalendarioOperacional(); }
     }
     function calcMesasMeta() { const f = parseCurrency($('metaFaturamento').value), t = parseCurrency($('metaTicketMedio').value); $('metaMesas').value = (f > 0 && t > 0) ? Math.round(f / t) : ''; }
     function clearMetaForm() { $('formMetas').reset(); $('metaId').value = ''; fillSelect('metaEstab'); }
@@ -723,26 +757,91 @@
     function clearDashFilters() { $('dashDataInicio').value = ''; $('dashDataFim').value = ''; $('dashboardEstabFilter').value = ''; renderDashboard(); }
     function toggleCustomCal() { const sel = $('prevCalibracao').value; $('prevCalibracaoCustom').disabled = (sel !== 'custom'); }
     
+    const DIAS_CALENDARIO = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    function garantirCalendarioOperacional() {
+      state.config = state.config || {};
+      state.config.operacional = state.config.operacional || { padroes: {}, excecoes: {} };
+      state.config.operacional.padroes = state.config.operacional.padroes || {};
+      state.config.operacional.excecoes = state.config.operacional.excecoes || {};
+    }
+    function padraoOperacional(estabId) {
+      garantirCalendarioOperacional();
+      if (!state.config.operacional.padroes[estabId]) {
+        const nome = getEstabelecimentoName(estabId).toLowerCase();
+        const fechado = nome.includes('jardim') ? 1 : (nome.includes('templ') || nome.includes('temporal') ? 2 : null);
+        state.config.operacional.padroes[estabId] = [0,1,2,3,4,5,6].map(d => d !== fechado);
+      }
+      return state.config.operacional.padroes[estabId];
+    }
+    function isOperationalOpen(estabId, dataStr) {
+      garantirCalendarioOperacional();
+      const excecao = state.config.operacional.excecoes[estabId + '_' + dataStr];
+      if (excecao && typeof excecao.aberto === 'boolean') return excecao.aberto;
+      return padraoOperacional(estabId)[safeDate(dataStr).getDay()] !== false;
+    }
+    function mostrarMensagemCalendario(texto, tipo='success') {
+      const el=$('calMsg'); if (!el) return; el.className='alert alert-'+tipo+' mt-2'; el.textContent=texto;
+      setTimeout(()=>{ if(el) { el.textContent=''; el.className='alert-message mt-2'; } }, 3500);
+    }
+    function carregarCalendarioOperacional() {
+      const estabId=$('calEstab')?.value; if(!estabId) return;
+      const padrao=padraoOperacional(estabId);
+      $('calDiasSemana').innerHTML=DIAS_CALENDARIO.map((d,i)=>`<label class="form-check"><input class="form-check-input cal-dia" type="checkbox" data-dia="${i}" ${padrao[i]!==false?'checked':''}> <span class="form-check-label">${d}</span></label>`).join('');
+      renderExcecoesOperacionais();
+    }
+    function salvarCalendarioOperacional() {
+      const estabId=$('calEstab')?.value; if(!estabId) return mostrarMensagemCalendario('Selecione um restaurante antes de salvar.','warning');
+      garantirCalendarioOperacional();
+      state.config.operacional.padroes[estabId]=Array.from(document.querySelectorAll('.cal-dia')).map(x=>x.checked);
+      saveState(); renderExcecoesOperacionais(); renderDashboard(); renderPrevisao();
+      mostrarMensagemCalendario('Dias habituais salvos com sucesso.');
+    }
+    function salvarExcecaoOperacional() {
+      const estabId=$('calEstab')?.value, data=$('calExcecaoData')?.value; if(!estabId) return mostrarMensagemCalendario('Selecione um restaurante antes de salvar a exceção.','warning'); if(!data) return mostrarMensagemCalendario('Informe a data da exceção.','warning');
+      garantirCalendarioOperacional(); state.config.operacional.excecoes[estabId+'_'+data]={aberto:$('calExcecaoSituacao').value==='aberto', motivo:($('calExcecaoMotivo').value||'').trim()};
+      saveState(); renderExcecoesOperacionais(); renderDashboard(); renderPrevisao(); $('calExcecaoData').value=''; $('calExcecaoMotivo').value=''; mostrarMensagemCalendario('Exceção salva com sucesso.');
+    }
+    function excluirExcecaoOperacional(data) { const estabId=$('calEstab')?.value; if(!estabId) return; delete state.config.operacional.excecoes[estabId+'_'+data]; saveState(); renderExcecoesOperacionais(); renderDashboard(); renderPrevisao(); }
+    function renderExcecoesOperacionais() {
+      const tb=$('calExcecoesTable'); if(!tb) return; const estabId=$('calEstab')?.value; if(!estabId){tb.innerHTML='<tr><td colspan="4" class="text-muted">Selecione um restaurante.</td></tr>';return;}
+      garantirCalendarioOperacional(); const itens=Object.entries(state.config.operacional.excecoes).filter(([k])=>k.startsWith(estabId+'_')).sort(([a],[b])=>a.localeCompare(b));
+      tb.innerHTML=itens.length?itens.map(([k,v])=>{const data=k.slice(estabId.length+1);return `<tr><td>${formatDate(data)}</td><td>${v.aberto?'<span class="badge bg-success">Aberto</span>':'<span class="badge bg-danger">Fechado</span>'}</td><td>${escapeHTML(v.motivo||'—')}</td><td><button class="btn btn-sm btn-outline-danger" onclick="excluirExcecaoOperacional('${data}')">Excluir</button></td></tr>`}).join(''):'<tr><td colspan="4" class="text-muted">Nenhuma exceção cadastrada.</td></tr>';
+    }
+
     // MOTOR PREDITIVO FUNCS
     function aplicarCorrecaoMonetaria(valor, anoOrigem, anoDestino) { const inflacaoMensal = (state.config.motor?.inflacaoMensal || 0.33) / 100; const mesesDiff = Math.abs((anoDestino - anoOrigem) * 12); if (mesesDiff === 0) return valor; const fatorCorrecao = Math.pow(1 + inflacaoMensal, mesesDiff); return valor * fatorCorrecao; }
     function removerOutliers(dados) { if (!dados || dados.length < 5) return dados; const valores = dados.map(d => d.fat); const media = valores.reduce((s, v) => s + v, 0) / valores.length; const variancia = valores.reduce((s, v) => s + Math.pow(v - media, 2), 0) / valores.length; const desvioPadrao = Math.sqrt(variancia); const threshold = state.config.motor?.outlierThreshold || 2.5; const limiteSuperior = media + (desvioPadrao * threshold); const limiteInferior = Math.max(0, media - (desvioPadrao * threshold)); return dados.map(d => { if (d.fat > limiteSuperior || d.fat < limiteInferior) return { ...d, fat: media, _wasOutlier: true }; return d; }); }
     function calcularEWMA(dados, pesoRecentePct) { if (!dados || dados.length === 0) return 0; if (dados.length <= 30) return dados.reduce((s, d) => s + d.fat, 0) / dados.length; const pesoRecente = (pesoRecentePct || 70) / 100; const pesoAntigo = 1 - pesoRecente; const dadosRecentes = dados.slice(-30); const dadosAntigos = dados.slice(0, -30); const mediaRecente = dadosRecentes.reduce((s, d) => s + d.fat, 0) / dadosRecentes.length; const mediaAntiga = dadosAntigos.reduce((s, d) => s + d.fat, 0) / dadosAntigos.length; return (mediaRecente * pesoRecente) + (mediaAntiga * pesoAntigo); }
+    function normalizarNomeEvento(nome) {
+      return String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    }
+    function mesmaFamiliaEvento(a, b) {
+      const na = normalizarNomeEvento(a.nome), nb = normalizarNomeEvento(b.nome);
+      if (na && na === nb) return true;
+      const tokens = na.split(' ').filter(t => t.length >= 5);
+      return tokens.length > 0 && tokens.filter(t => nb.includes(t)).length >= Math.min(2, tokens.length);
+    }
     function getImpactoEventoHistorico(evento, estabId, dataPrevista) {
-      const anoAtual = safeDate(dataPrevista).getFullYear(); let impactosEncontrados = [];
+      const anoAtual = safeDate(dataPrevista).getFullYear();
+      const ids = evento.estabelecimentoId ? [evento.estabelecimentoId] : (estabId ? [estabId] : state.estabelecimentos.map(e => e.id));
+      const impactos = [];
       for (let ano = anoAtual - 1; ano >= anoAtual - 5; ano--) {
-        const eventosAnoAnt = state.eventos.filter(e => e.nome === evento.nome && safeDate(e.data).getFullYear() === ano && (!e.estabelecimentoId || e.estabelecimentoId === estabId));
-        eventosAnoAnt.forEach(evtAnt => {
-          const dataEvt = safeDate(evtAnt.data); const dataFimEvt = evtAnt.dataFim ? safeDate(evtAnt.dataFim) : dataEvt; const diasEvento = []; let curr = new Date(dataEvt);
-          while (curr <= dataFimEvt) { diasEvento.push(isoDate(curr)); curr.setDate(curr.getDate() + 1); }
-          const fatEvento = state.faturamentos.filter(f => f.estabelecimentoId === estabId && diasEvento.includes(f.data) && parseCurrency(f.faturamento) > 0);
-          if (fatEvento.length > 0) {
-            const somaEvento = fatEvento.reduce((s, f) => s + getFaturamentoLiquidoRegistro(f), 0); const mediaEvento = somaEvento / fatEvento.length;
-            const mes = String(dataEvt.getMonth() + 1).padStart(2, '0'); const fatMes = state.faturamentos.filter(f => f.estabelecimentoId === estabId && f.data.startsWith(ano + '-' + mes) && !diasEvento.includes(f.data) && parseCurrency(f.faturamento) > 0);
-            if (fatMes.length > 0) { const mediaMes = fatMes.reduce((s, f) => s + getFaturamentoLiquidoRegistro(f), 0) / fatMes.length; impactosEncontrados.push(((mediaEvento - mediaMes) / mediaMes) * 100); }
-          }
+        const ocorrencias = state.eventos.filter(e => safeDate(e.data).getFullYear() === ano && mesmaFamiliaEvento(evento, e) && (!e.estabelecimentoId || ids.includes(e.estabelecimentoId)));
+        ocorrencias.forEach(oc => {
+          const inicio = safeDate(oc.data), fim = oc.dataFim ? safeDate(oc.dataFim) : inicio, dias = [], cursor = new Date(inicio);
+          while (cursor <= fim) { dias.push(isoDate(cursor)); cursor.setDate(cursor.getDate() + 1); }
+          ids.forEach(id => {
+            const fatEvento = state.faturamentos.filter(f => f.estabelecimentoId === id && dias.includes(f.data) && parseCurrency(f.faturamento) > 0);
+            const fatBase = state.faturamentos.filter(f => f.estabelecimentoId === id && f.data.startsWith(ano + '-') && safeDate(f.data).getMonth() === inicio.getMonth() && !dias.includes(f.data) && parseCurrency(f.faturamento) > 0);
+            if (fatEvento.length && fatBase.length) {
+              const mediaEvento = fatEvento.reduce((s,f) => s + getFaturamentoLiquidoRegistro(f), 0) / fatEvento.length;
+              const mediaBase = fatBase.reduce((s,f) => s + getFaturamentoLiquidoRegistro(f), 0) / fatBase.length;
+              if (mediaBase > 0) impactos.push((mediaEvento / mediaBase - 1) * 100);
+            }
+          });
         });
       }
-      return impactosEncontrados.length > 0 ? impactosEncontrados.reduce((s, v) => s + v, 0) / impactosEncontrados.length : null;
+      return impactos.length ? impactos.reduce((s,v) => s + v, 0) / impactos.length : null;
     }
     // Pareamento sazonal: compara cada data com a mesma ocorrência do mesmo dia da semana
     // no mesmo mês do ano anterior. Se a ocorrência não existir, usa a data mais próxima
@@ -803,10 +902,11 @@
       const nomeAnt = eventosAnt.map(e => e.nome.toLowerCase());
       const mesmoContexto = nomePrev.length > 0 && nomePrev.some(n => nomeAnt.includes(n));
       const contextoDiferente = nomePrev.length !== nomeAnt.length || nomePrev.some(n => !nomeAnt.includes(n));
+      const alvo = safeDate(dataPrevista);
       const amostra = state.faturamentos.filter(f => {
-        if (f.estabelecimentoId !== estabId || parseCurrency(f.faturamento) <= 0) return false;
+        if (f.estabelecimentoId !== estabId || parseCurrency(f.faturamento) <= 0 || !sazonal) return false;
         const d = safeDate(f.data);
-        return sazonal && d.getMonth() === safeDate(dataPrevista).getMonth() && d.getDay() === safeDate(dataPrevista).getDay();
+        return d.getFullYear() < alvo.getFullYear() && d.getMonth() === alvo.getMonth() && d.getDay() === alvo.getDay();
       }).length;
       let qualidade = 'Insuficiente', classe = 'text-muted', confianca = 35;
       if (!sazonal || amostra < 2) { qualidade = amostra === 1 ? 'Baixa' : 'Insuficiente'; classe = amostra === 1 ? 'text-danger' : 'text-muted'; confianca = amostra === 1 ? 50 : 30; }
@@ -821,19 +921,40 @@
       const erroBase = Number(p.erroHistoricoPct) || 0.12;
       const ajusteHorizonte = horizonte <= 7 ? 0.90 : horizonte <= 30 ? 1.00 : 1.10;
       const ajusteQualidade = referencia.qualidade === 'Alta' ? 0.90 : referencia.qualidade === 'Média' ? 1.00 : 1.12;
-      const margem = Math.max(0.08, Math.min(0.20, erroBase * ajusteHorizonte * ajusteQualidade));
+      const perfilDia = p.dia ? ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].indexOf(p.dia) : -1;
+      const erroPerfil = perfilDia >= 0 && window.__forecastDowProfiles?.[perfilDia]?.erroPct ? window.__forecastDowProfiles[perfilDia].erroPct / 100 : erroBase;
+      const margem = Math.max(0.08, Math.min(0.35, Math.max(erroBase, erroPerfil) * ajusteHorizonte * ajusteQualidade));
       const confianca = Math.round(Math.max(35, Math.min(90, (1 - margem) * 100)));
       return { confianca, margem, inferior: Math.max(0, p.previsto * (1 - margem)), superior: p.previsto * (1 + margem) };
     }
     function obterFaixaPeriodo(dados, totalPrevisto) {
-      const validos = (dados || []).filter(p => !p.isClosed && p.previsto > 0);
+      // Intervalo mensal derivado das incertezas de cada dia. Fechamentos não
+      // entram no cálculo. A simulação usa choques independentes por data,
+      // preservando a heterogeneidade do histórico e evitando uma margem única.
+      const validos = (dados || []).filter(p => !p.isClosed && Number(p.previsto) > 0);
       if (!validos.length || totalPrevisto <= 0) return { inferior: 0, superior: 0, margem: 0, confianca: 0, metodo: 'Sem amostra' };
-      const erros = validos.map(p => Number(p.erroHistoricoPct) || 0.12);
-      const media = erros.reduce((a,b) => a+b, 0) / erros.length;
-      const horizonteMedio = validos.reduce((a,p) => a + Math.max(0, Math.round((safeDate(p.data) - new Date()) / 86400000)), 0) / validos.length;
-      const fatorHorizonte = horizonteMedio <= 7 ? 0.85 : horizonteMedio <= 30 ? 0.95 : 1.05;
-      const margem = Math.max(0.08, Math.min(0.18, media * fatorHorizonte));
-      return { inferior: Math.max(0, totalPrevisto * (1 - margem)), superior: totalPrevisto * (1 + margem), margem, confianca: Math.round((1 - margem) * 100), metodo: 'erro histórico agregado' };
+      const z95 = 1.959964, fatorQ75 = 0.67448975;
+      const componentes = validos.map((p, idx) => {
+        const erro = Math.max(0.04, Math.min(0.35, Number(p.erroHistoricoPct) || 0.14));
+        const horizonte = Math.max(0, Math.round((safeDate(p.data) - new Date()) / 86400000));
+        const fatorHorizonte = horizonte <= 7 ? 0.90 : horizonte <= 30 ? 1.00 : 1.10;
+        const sigmaRel = Math.max(0.04, Math.min(0.40, (erro / fatorQ75) * fatorHorizonte));
+        return { valor: Number(p.previsto), sigma: Number(p.previsto) * sigmaRel, sigmaRel, idx };
+      });
+      // Aproximação analítica: soma das variâncias individuais (não das margens).
+      const varianciaTotal = componentes.reduce((s, c) => s + c.sigma * c.sigma, 0);
+      const desvioTotal = Math.sqrt(varianciaTotal);
+      const inferiorVariancia = Math.max(0, totalPrevisto - z95 * desvioTotal);
+      const superiorVariancia = totalPrevisto + z95 * desvioTotal;
+      // Monte Carlo lognormal: mantém os valores positivos e a média esperada.
+      const N = 10000, amostras = new Array(N); let seed = 2166136261;
+      const aleatorio = () => { seed = (seed ^ (seed << 13)) >>> 0; seed = (seed ^ (seed >>> 17)) >>> 0; seed = (seed ^ (seed << 5)) >>> 0; return (seed >>> 0) / 4294967296; };
+      for (let n = 0; n < N; n++) { let soma = 0; for (const c of componentes) { const u1 = Math.max(1e-12, aleatorio()), u2 = aleatorio(); const normal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); soma += c.valor * Math.exp(-0.5 * c.sigmaRel * c.sigmaRel + c.sigmaRel * normal); } amostras[n] = soma; }
+      amostras.sort((a,b) => a-b);
+      const inferiorMonteCarlo = amostras[Math.floor(N * 0.025)], superiorMonteCarlo = amostras[Math.floor(N * 0.975)];
+      const inferior = Math.max(0, inferiorMonteCarlo), superior = superiorMonteCarlo;
+      const margem = totalPrevisto > 0 ? Math.max((totalPrevisto - inferior) / totalPrevisto, (superior - totalPrevisto) / totalPrevisto) : 0;
+      return { inferior, superior, margem, confianca: 95, metodo: 'Monte Carlo (10.000 simulações) + soma das variâncias', inferiorVariancia, superiorVariancia, desvioTotal, dias: validos.length };
     }
     function gerarExplicacaoPrevisao(p, sazonal, referencia, estabId) {
       const fatores = [];
@@ -868,6 +989,36 @@
       const desvios = vals.map(v=>Math.abs(v-med)/med).sort((a,b)=>a-b);
       return Math.max(0.06, Math.min(0.22, desvios[Math.floor(desvios.length*0.75)] || 0.14));
     }
+    function obterMetaContexto(estabId, dataStr) { const mes=getMonthYear(dataStr); const meta=(state.metas||[]).find(m=>m.mes===mes&&m.estabelecimentoId===estabId); const mapa=state.config?.metasDiariasPorContexto||{}; const diarias=mapa[estabId+'_'+mes]||state.config?.metasDiarias||null; return {meta,diarias:Array.isArray(diarias)?diarias.map(parseCurrency):null}; }
+    function calcularPesosMetaMes(mes,diasMes,diarias,estabId) { const pesos=[]; let soma=0; for(let d=1;d<=diasMes;d++){const data=mes+'-'+String(d).padStart(2,'0'); const aberto=!estabId || isOperationalOpen(estabId,data); const v=aberto?(diarias?(parseCurrency(diarias[safeDate(data).getDay()])||0):1):0;pesos.push(v);soma+=v;} return soma>0?{pesos,soma}:{pesos:pesos.map(()=>1),soma:diasMes}; }
+    function obterMetaDiaProjetada(estabId,dataStr,prev,pesos,info) { const alvo=parseCurrency(info?.meta?.faturamentoAlvo); if(alvo<=0)return {valor:0,peso:0,desafio:null,restante:null}; const d=safeDate(dataStr),idx=d.getDate()-1,mes=getMonthYear(dataStr); const realizado=state.faturamentos.filter(f=>f.estabelecimentoId===estabId&&f.data>=mes+'-01'&&f.data<dataStr).reduce((a,f)=>a+Math.max(0,getFaturamentoLiquidoRegistro(f)),0); const restante=Math.max(0,alvo-realizado),soma=pesos.pesos.slice(idx).reduce((a,v)=>a+v,0),valor=soma>0?restante*pesos.pesos[idx]/soma:0,n=pesos.pesos.slice(idx).filter(v=>v>0).length; return {valor,peso:n<=7?.20:n<=30?.32:.45,desafio:prev>0?(valor-prev)/prev*100:null,restante}; }
+    function classificarDesafioMeta(v) { if(v===null||!isFinite(v))return 'Sem referência'; const a=Math.abs(v); return a<=10?'Realista':a<=25?'Desafiadora':a<=50?'Agressiva':'Muito agressiva'; }
+    // Meta gerencial como âncora de planejamento, mantendo a previsão estatística auditável.
+    function obterPoliticaMeta() { const c=state.config.metaPolitica||{}; return {peso:Math.max(0,Math.min(1,Number(c.peso)||0.35)),limiteInferior:Math.max(0,Number(c.limiteInferior)||0.20),limiteSuperior:Math.max(0,Number(c.limiteSuperior)||0.20)}; }
+    function calibrarPrevisaoComMeta(estatistica, alvo) { estatistica=Math.max(0,Number(estatistica)||0); alvo=Number(alvo)||0; if(alvo<=0)return {valor:estatistica,limitado:false,ajuste:0}; const p=obterPoliticaMeta(),misturada=estatistica*(1-p.peso)+alvo*p.peso,piso=alvo*(1-p.limiteInferior),teto=alvo*(1+p.limiteSuperior),valor=Math.max(piso,Math.min(teto,misturada)); return {valor,limitado:Math.abs(valor-misturada)>0.01,ajuste:estatistica>0?((valor/estatistica-1)*100):0,alvo}; }
+    // Variação específica da data: impede que todas as ocorrências do mesmo dia
+    // da semana recebam exatamente o mesmo faturamento. Usa o histórico do mesmo
+    // mês/dia quando disponível e faz fallback para o perfil do próprio dia da semana.
+    function obterFatorVariacaoDaData(historico, dataAlvo, dow, mediaGlobal) {
+      const alvo = safeDate(dataAlvo);
+      const candidatosData = (historico || []).filter(x => {
+        const d = safeDate(x.data);
+        return x.fat > 0 && d.getMonth() === alvo.getMonth() && d.getDate() === alvo.getDate() && d < alvo;
+      }).map(x => x.fat).sort((a,b) => a-b);
+      const candidatosDow = (historico || []).filter(x => safeDate(x.data).getDay() === dow && x.fat > 0).map(x => x.fat).sort((a,b) => a-b);
+      const mediana = xs => xs.length ? xs[Math.floor((xs.length - 1) / 2)] : 0;
+      const medData = mediana(candidatosData);
+      const medDow = mediana(candidatosDow);
+      let fator = medData > 0 && medDow > 0 ? 0.72 * (medData / medDow) + 0.28 : 1;
+      // Quando não há par histórico da mesma data, usa uma ondulação suave
+      // baseada no dia do mês, sem substituir o perfil estatístico do DOW.
+      if (!(medData > 0 && medDow > 0)) {
+        const oscilacao = 1 + 0.06 * Math.sin((alvo.getDate() * 1.91) + (alvo.getMonth() * 0.73));
+        fator = oscilacao;
+      }
+      return Math.max(0.78, Math.min(1.22, fator));
+    }
+
     function runPredictiveEngine(estabId, startStr, days, calFactor, treatMissingAsClosed) {
       calFactor = calFactor || 1.0; treatMissingAsClosed = treatMissingAsClosed !== false;
       if (!estabId || !startStr) return [];
@@ -918,13 +1069,19 @@
         }
       }
       let previsoes = []; const today = new Date(); today.setHours(0,0,0,0);
+      const metasMesCache = {};
       for (let i = 0; i < days; i++) {
         const currDate = new Date(startDate); currDate.setDate(startDate.getDate() + i); const isoCurr = isoDate(currDate); const dow = currDate.getDay(); const isPastOrToday = currDate <= today;
         const realFatRecord = histFat.find(f => f.data === isoCurr); const closedRecord = realFatRecord && parseCurrency(realFatRecord.faturamento) === 0; const evt = eventos.find(e => isoCurr >= e.data && isoCurr <= (e.dataFim || e.data));
+        const operationalOpen = isOperationalOpen(estabId, isoCurr);
         let evtName = '', isClosed = false, evtImpactoPct = 0, evtImpactoOrigem = '';
-        if (isPastOrToday && !realFatRecord && treatMissingAsClosed) { isClosed = true; evtName = 'Fechado (Sem dados)'; } else if (closedRecord) { isClosed = true; evtName = 'Fechado (Histórico)'; } else if (evt && evt.tipo === 'fechado') { isClosed = true; evtName = evt.nome; }
+        // O calendário operacional é a fonte oficial para decidir se o dia fecha.
+        // Ausência de lançamento ou faturamento igual a zero não significa fechamento:
+        // sábado, especialmente, continua participando da previsão quando estiver aberto.
+        if (closedRecord) { isClosed = true; evtName = 'Fechado (Faturamento zero / calendário)'; } else if (!operationalOpen && !realFatRecord) { isClosed = true; evtName = 'Fechado (Calendário)'; } else if (evt && evt.tipo === 'fechado' && !realFatRecord) { isClosed = true; evtName = evt.nome; }
         if (isClosed) { previsoes.push({ data: isoCurr, dia: getDayOfWeek(isoCurr), mesas: 0, tkt: 0, previsto: 0, previstoBase: 0, desvioManual: 0, real: realFatRecord ? getFaturamentoLiquidoRegistro(realFatRecord) : 0, evt: evtName, isClosed: true, evtImpactoPct: 0, evtImpactoOrigem: '' }); continue; }
-        let pMesasBase = Math.max(1, avgMesasGlobal * seasonalMesas[dow] * (seasonalMonth[currDate.getMonth()] || 1)); let pTktBase = Math.max(10, avgTktGlobal * seasonalTkt[dow]);
+        const fatorVariacaoData = obterFatorVariacaoDaData(openDaysHist, isoCurr, dow, avgFatGlobal);
+        let pMesasBase = Math.max(1, avgMesasGlobal * seasonalMesas[dow] * (seasonalMonth[currDate.getMonth()] || 1) * fatorVariacaoData); let pTktBase = Math.max(10, avgTktGlobal * seasonalTkt[dow]);
         if (evt && evt.tipo !== 'fechado') { 
           evtName = evt.nome; let histImpact = getImpactoEventoHistorico(evt, estabId, isoCurr);
           if (histImpact !== null) { evtImpactoPct = histImpact; evtImpactoOrigem = 'Histórico'; } 
@@ -932,18 +1089,18 @@
           else { pMesasBase *= 1.30; pTktBase *= 1.05; evtImpactoOrigem = 'Padrão'; }
           if (evtImpactoPct !== 0) { const fatorImpacto = 1 + (evtImpactoPct / 100); pMesasBase *= fatorImpacto; pTktBase *= (1 + (evtImpactoPct / 200)); }
         }
-        pMesasBase = Math.round(pMesasBase); let pFatBase = pMesasBase * pTktBase * fatorBacktest * calFactor;
+        const mesasPrevistasPrecisao = pMesasBase; pMesasBase = Math.round(pMesasBase); const previsaoEstatistica = mesasPrevistasPrecisao * pTktBase * fatorBacktest * calFactor; const mesDestino=getMonthYear(isoCurr), metaInfo=obterMetaContexto(estabId,isoCurr); if(!metasMesCache[mesDestino]){const diasMes=new Date(currDate.getFullYear(),currDate.getMonth()+1,0).getDate();metasMesCache[mesDestino]=calcularPesosMetaMes(mesDestino,diasMes,metaInfo.diarias,estabId);} const metaDia=obterMetaDiaProjetada(estabId,isoCurr,previsaoEstatistica,metasMesCache[mesDestino],metaInfo); const calibracaoMeta=calibrarPrevisaoComMeta(previsaoEstatistica,metaDia.valor); const previsaoAjustada=calibracaoMeta.valor; let pFatBase = previsaoEstatistica;
         let ajusteKey = estabId + '_' + isoCurr; let desvioManual = (state.ajustesPrevisao && state.ajustesPrevisao[ajusteKey] !== undefined) ? state.ajustesPrevisao[ajusteKey] : 0;
-        let pFat = pFatBase * (1 + desvioManual / 100); let pMesas = pTktBase > 0 ? Math.round(pFat / pTktBase) : pMesasBase; let pTkt = pTktBase;
+        let pFat = previsaoAjustada * (1 + desvioManual / 100); let pMesas = pTktBase > 0 ? Math.round(pFat / pTktBase) : pMesasBase; let pTkt = pTktBase;
         const valReal = realFatRecord ? getFaturamentoLiquidoRegistro(realFatRecord) : null;
         let evtDisplay = evtName; if (evtImpactoPct !== 0 && evtName) { evtDisplay = evtName + ' (' + (evtImpactoPct > 0 ? '+' : '') + evtImpactoPct.toFixed(0) + '% / ' + evtImpactoOrigem + ')'; }
-        previsoes.push({ data: isoCurr, dia: getDayOfWeek(isoCurr), mesas: pMesas, tkt: pTkt, previsto: pFat, previstoBase: pFatBase, desvioManual, real: valReal, evt: evtDisplay, evtImpactoPct, evtImpactoOrigem, isClosed: false, erroHistoricoPct: estimarErroHistorico(openDaysHist, isoCurr), sazonalPareada: true });
+        previsoes.push({ data: isoCurr, dia: getDayOfWeek(isoCurr), mesas: pMesas, tkt: pTkt, previsto: pFat, previstoBase: pFatBase, previsaoEstatistica, metaGerencial: metaDia.valor || null, previsaoAjustada, calibracaoMeta, pesoMeta: metaDia.peso || 0, desafioMetaPct: metaDia.desafio, classificacaoMeta: classificarDesafioMeta(metaDia.desafio), metaRestante: metaDia.restante, desvioManual, real: valReal, evt: evtDisplay, evtImpactoPct, evtImpactoOrigem, isClosed: false, erroHistoricoPct: estimarErroHistorico(openDaysHist, isoCurr), sazonalPareada: true });
       }
       return previsoes;
     }
 
     function salvarMetasDiarias() {
-      state.config.metasDiarias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d => parseCurrency($('meta' + d).value));
+      const valores=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d=>parseCurrency($('meta'+d).value)); state.config.metasDiarias=valores; const mid=$('metaEstab')?.value, mm=$('metaMes')?.value; if(mid&&mm){state.config.metasDiariasPorContexto=state.config.metasDiariasPorContexto||{};state.config.metasDiariasPorContexto[mid+'_'+mm]=valores;}
       saveState();
       renderDashboard();
       alert("Metas diárias salvas com sucesso!");
@@ -988,6 +1145,9 @@
       if(totalProj === 0) return alert("Sem histórico suficiente para calcular a projeção sazonal.");
       
       const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+      // A distribuição usa exclusivamente dias abertos pelo calendário e a
+      // projeção oficial do motor. Um dia aberto sem histórico positivo recebe
+      // a sazonalidade neutra do motor, nunca peso zero por causa de um lançamento 0.
       state.config.metasDiarias = [0,0,0,0,0,0,0];
       for(let i=0; i<7; i++) {
         const peso = somaProjPorDia[i] / totalProj;
@@ -997,6 +1157,8 @@
           $('meta' + dias[i]).value = metaDia.toFixed(2).replace('.', ',');
         }
       }
+      state.config.metasDiariasPorContexto = state.config.metasDiariasPorContexto || {};
+      state.config.metasDiariasPorContexto[estabId + '_' + mes] = state.config.metasDiarias.slice();
       saveState();
       renderDashboard();
       alert("Metas diárias calculadas e salvas com sucesso! Sábados agora têm projeção. O Dashboard Executivo foi atualizado.");
@@ -1173,7 +1335,7 @@
         const desvioCell = row.insertCell();
         if (!p.isClosed && p.previstoBase > 0) {
           const desvioSpan = document.createElement('span'); desvioSpan.className = 'editable-prev'; desvioSpan.contentEditable = 'true'; desvioSpan.textContent = (p.desvioManual || 0).toFixed(1); desvioSpan.dataset.idx = originalIdx;
-          desvioSpan.addEventListener('blur', function() { let desvioVal = parseFloat(this.textContent.replace(/[^\d,.-]/g, '').replace(',', '.')); if (isNaN(desvioVal)) desvioVal = 0; const i = parseInt(this.dataset.idx); lastPrevisaoResult[i].desvioManual = desvioVal; lastPrevisaoResult[i].previsto = lastPrevisaoResult[i].previstoBase * (1 + desvioVal / 100); if (lastPrevisaoResult[i].tkt > 0) lastPrevisaoResult[i].mesas = Math.round(lastPrevisaoResult[i].previsto / lastPrevisaoResult[i].tkt); let ajusteKey = estabId + '_' + lastPrevisaoResult[i].data; if (!state.ajustesPrevisao) state.ajustesPrevisao = {}; state.ajustesPrevisao[ajusteKey] = desvioVal; saveState(); atualizarTabelaPrevisao(fatAnoAnterior, anoAtual, anoAnterior, estabId); });
+          desvioSpan.addEventListener('blur', function() { let desvioVal = parseFloat(this.textContent.replace(/[^\d,.-]/g, '').replace(',', '.')); if (isNaN(desvioVal)) desvioVal = 0; const i = parseInt(this.dataset.idx); lastPrevisaoResult[i].desvioManual = desvioVal; lastPrevisaoResult[i].previsto = (lastPrevisaoResult[i].previsaoAjustada ?? lastPrevisaoResult[i].previstoBase) * (1 + desvioVal / 100); if (lastPrevisaoResult[i].tkt > 0) lastPrevisaoResult[i].mesas = Math.round(lastPrevisaoResult[i].previsto / lastPrevisaoResult[i].tkt); let ajusteKey = estabId + '_' + lastPrevisaoResult[i].data; if (!state.ajustesPrevisao) state.ajustesPrevisao = {}; state.ajustesPrevisao[ajusteKey] = desvioVal; saveState(); atualizarTabelaPrevisao(fatAnoAnterior, anoAtual, anoAnterior, estabId); });
           desvioSpan.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } }); desvioCell.appendChild(desvioSpan);
         } else desvioCell.textContent = '-';
         row.insertCell().textContent = p.real !== null && p.real !== undefined ? formatCurrency(p.real) : '-';
@@ -1263,6 +1425,16 @@
 
     
 
+    function obterPrevisaoOficialPeriodo(eId, inicio, fim) {
+      const hoje=new Date(); hoje.setHours(0,0,0,0); const amanha=new Date(hoje); amanha.setDate(amanha.getDate()+1);
+      const inicioData=safeDate(inicio), fimData=safeDate(fim); const inicioFuturo=inicioData>amanha?inicioData:amanha;
+      if(inicioFuturo>fimData) return 0;
+      const dias=Math.round((fimData-inicioFuturo)/86400000)+1; let total=0;
+      const estabs=eId?[{id:eId}]:state.estabelecimentos;
+      estabs.forEach(est=>{ total+=runPredictiveEngine(est.id,isoDate(inicioFuturo),dias,1.0,true).reduce((sum,p)=>sum+(Number(p.previsto)||0),0); });
+      return total;
+    }
+
     function renderDashboard() {
       try {
         const eId = $('dashboardEstabFilter').value; const dI = $('dashDataInicio').value || isoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); const dF = $('dashDataFim').value || isoDate(new Date());
@@ -1277,18 +1449,15 @@
         const today = new Date(); today.setHours(0,0,0,0);
         const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
         const inicioFuturo = safeDate(dI) > tomorrow ? safeDate(dI) : tomorrow;
-        let projPeriod = totFatLiquido;
-        if (inicioFuturo <= safeDate(dF)) {
-          const diasFuturos = Math.round((safeDate(dF) - inicioFuturo) / 86400000) + 1;
-          if (eId) { const engineResult = runPredictiveEngine(eId, isoDate(inicioFuturo), diasFuturos); projPeriod += engineResult.reduce((s, r) => s + r.previsto, 0); }
-          else if (state.estabelecimentos.length > 0) { state.estabelecimentos.forEach(est => { const res = runPredictiveEngine(est.id, isoDate(inicioFuturo), diasFuturos); projPeriod += res.reduce((s, r) => s + r.previsto, 0); }); }
-        }
+        const projPeriod = totFatLiquido + obterPrevisaoOficialPeriodo(eId, dI, dF);
         
         $('dashboardFatTotal').textContent = formatCurrency(totFat);
         $('dashboardDiasUteis').innerHTML = `${diasUteisApurados} dias apurados<br>Caixa Evento: -${formatCurrency(totCaixaEvento)}<br><strong>Líquido: ${formatCurrency(totFatLiquido)}</strong>`;
         
         $('dashboardMetaTotal').textContent = formatCurrency(totMeta); $('dashboardAtingimentoMeta').textContent = 'Atingimento: ' + (totMeta > 0 ? ((totFatLiquido / totMeta) * 100).toFixed(1) + '%' : '0%');
         $('dashboardProjMes').textContent = formatCurrency(projPeriod);
+        const metaResumo = $('previsaoMetaResumo');
+        if (metaResumo && totMeta > 0) { const bruto=obterPrevisaoOficialPeriodo(eId,dI,dF), ajustada=Math.max(0,projPeriod-totFatLiquido), desvio=((projPeriod-totMeta)/totMeta)*100; metaResumo.className='alert small '+(Math.abs(desvio)<=20?'alert-success':'alert-warning'); metaResumo.innerHTML='<strong>Meta:</strong> '+formatCurrency(totMeta)+' &nbsp;|&nbsp; <strong>Estatística bruta:</strong> '+formatCurrency(bruto)+' &nbsp;|&nbsp; <strong>Projeção ajustada:</strong> '+formatCurrency(ajustada)+' &nbsp;|&nbsp; Desvio: '+(desvio>=0?'+':'')+desvio.toFixed(1)+'%. '+(Math.abs(desvio)>20?'Revisão recomendada: diferença acima da faixa gerencial.':'Dentro da faixa gerencial.'); }
         $('dashboardRunRateStatus').textContent = totMeta > 0 ? (projPeriod >= totMeta ? 'Ritmo Preditivo Forte 🟢' : 'Abaixo do Alvo 🔴') : 'Motor Preditivo Ativo ⚪';
         
         const projMesCard = $('dashboardProjMesCard');
@@ -1426,7 +1595,7 @@
       [...state.eventos].sort((a,b) => b.data.localeCompare(a.data)).forEach(e => {
         let r = tb.insertRow(); if (e.tipo === 'fechado') r.className = 'row-closed';
         r.insertCell().textContent = formatDate(e.data); r.insertCell().textContent = e.dataFim ? formatDate(e.dataFim) : '-'; r.insertCell().textContent = escapeHTML(e.nome); r.insertCell().textContent = e.tipo;
-        let histImpact = getImpactoEventoHistorico(e, e.estabelecimentoId || state.estabelecimentos[0]?.id, e.data); let histCell = r.insertCell();
+        let histImpact = getImpactoEventoHistorico(e, e.estabelecimentoId || null, e.data); let histCell = r.insertCell();
         if (histImpact !== null) { histCell.textContent = (histImpact > 0 ? '+' : '') + histImpact.toFixed(1) + '%'; histCell.className = histImpact >= 0 ? 'diff-positive' : 'diff-negative'; } else { histCell.textContent = 'Sem histórico'; histCell.className = 'text-muted'; }
         let impCell = r.insertCell(); let imp = parseFloat(e.impactoEsperado) || 0; impCell.textContent = (imp > 0 ? '+' : '') + imp + '%'; if (imp > 0) impCell.className = 'diff-positive'; else if (imp < 0) impCell.className = 'diff-negative';
         r.insertCell().textContent = e.estabelecimentoId ? getEstabelecimentoName(e.estabelecimentoId) : 'Todos';
@@ -1632,6 +1801,7 @@ async function buscarAjusteIA() {
       $('loginForm').addEventListener('submit', processarLogin);
       if (usuarioAutenticado()) mostrarAplicacao(); else mostrarLogin();
       await loadInitialState(); fillSelects();
+      if ($('calEstab')) { $('calEstab').value = state.estabelecimentos[0]?.id || ''; carregarCalendarioOperacional(); }
       $('dashboardEstabFilter').addEventListener('change', selecionarEstabelecimentoDashboard);
       inicializarMenuLateral();
       document.querySelectorAll(".nav-btn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
@@ -1660,5 +1830,122 @@ async function buscarAjusteIA() {
     });
     function clearHistFilters() { $('histDataInicio').value=''; $('histDataFim').value=''; $('histEstab').value=''; renderHistorico(); }
   </script>
+<script>
+/* Atualização 2026.09 — motor mensal reconciliado, auditável e com controle de qualidade. */
+(function(){
+  const PREVISAO_ENGINE_VERSION = '2026.09-historico-diario-v2';
+  function garantirPoliticaAtualizada(){
+    state.config = state.config || {};
+    const p = state.config.metaPolitica || {};
+    state.config.metaPolitica = {
+      peso: Math.max(0, Math.min(1, Number.isFinite(Number(p.peso)) ? Number(p.peso) : 0.40)),
+      limiteInferior: Math.max(0.05, Math.min(0.35, Number.isFinite(Number(p.limiteInferior)) ? Number(p.limiteInferior) : 0.20)),
+      limiteSuperior: Math.max(0.05, Math.min(0.35, Number.isFinite(Number(p.limiteSuperior)) ? Number(p.limiteSuperior) : 0.20)),
+      maxFatorSazonal: 1.25,
+      minFatorSazonal: 0.85,
+      limiteAjusteManual: 0.15
+    };
+    return state.config.metaPolitica;
+  }
+  garantirPoliticaAtualizada();
+  window.getForecastQuality = function(estabId){
+    const rows = (state.faturamentos||[]).filter(f=>f.estabelecimentoId===estabId);
+    const valid = rows.filter(f=>getFaturamentoLiquidoRegistro(f)>0);
+    const n = valid.length;
+    const score = n>=180 ? 'Alta' : n>=60 ? 'Média' : 'Baixa';
+    return { n, score, confianca: Math.min(95, Math.max(45, 45 + Math.min(50,n/4))) };
+  };
+  function mediana(a){ if(!a.length)return 0; const x=[...a].sort((u,v)=>u-v); return x[Math.floor(x.length/2)]; }
+  function mediaAparada(a){
+    if(!a.length)return 0; const x=[...a].sort((u,v)=>u-v); const corte=x.length>=10?Math.floor(x.length*.10):0; const y=x.slice(corte,x.length-corte||x.length); return y.reduce((s,v)=>s+v,0)/(y.length||1);
+  }
+  function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+  function dataMes(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+  function mesMeta(estabId, mes){ return (state.metas||[]).find(m=>m.estabelecimentoId===estabId && m.mes===mes); }
+  function diasAbertos(estabId, ano, mes){
+    const n=new Date(ano,mes,0).getDate(), out=[];
+    for(let d=1;d<=n;d++){ const iso=ano+'-'+String(mes).padStart(2,'0')+'-'+String(d).padStart(2,'0'); if(isOperationalOpen(estabId,iso)) out.push(iso); }
+    return out;
+  }
+  function somarRealizado(estabId, mes, antesDe){
+    return (state.faturamentos||[]).filter(f=>f.estabelecimentoId===estabId && f.data.startsWith(mes) && (!antesDe || f.data<antesDe)).reduce((s,f)=>s+Math.max(0,getFaturamentoLiquidoRegistro(f)),0);
+  }
+  function classificarQualidade(n){ return n>=180?'Alta':n>=60?'Média':'Baixa'; }
+  function atualizarResumoMensal(result, estabId){
+    const metas={}; result.filter(p=>!p.isClosed).forEach(p=>{ const m=p.mesReferencia||p.data.slice(0,7); (metas[m] ||= {estat:0,aj:0,meta:p.metaMensal||0,real:0,restante:0,alertas:[]}); metas[m].estat+=p.previsaoEstatistica||0; metas[m].aj+=p.previsaoAjustada||p.previsto||0; });
+    const q=getForecastQuality(estabId); const repeticoes=(result||[]).filter(p=>p.alertaRepeticao).length; const avisoRepeticao=repeticoes?` · alerta de repetição: ${repeticoes} linha(s)`:''; const linhas=Object.entries(metas).map(([m,x])=>{ const des=x.meta?((x.estat/x.meta)-1)*100:null; const final=x.meta?((x.aj/x.meta)-1)*100:null; const nivel=des===null?'Sem meta':Math.abs(des)<=10?'Normal':Math.abs(des)<=20?'Atenção':Math.abs(des)<=35?'Revisão':'Crítico'; return `<div><strong>${getMonthYearFromISO(m)}</strong> — estatística ${formatCurrency(x.estat)} | ajustada ${formatCurrency(x.aj)} | meta ${x.meta?formatCurrency(x.meta):'não cadastrada'} | desvio bruto ${des===null?'—':(des>=0?'+':'')+des.toFixed(1)+'%'} | <span class="badge ${nivel==='Crítico'?'bg-danger':nivel==='Revisão'?'bg-warning text-dark':nivel==='Atenção'?'bg-info text-dark':'bg-success'}">${nivel}</span></div>`; }).join('');
+    const el=$('previsaoMetaResumo'); if(el) el.innerHTML=`<strong>Governança da previsão</strong> · qualidade histórica: <b>${q.score}</b> (${q.n} dias)${avisoRepeticao} · versão ${PREVISAO_ENGINE_VERSION}<br>${linhas||'Aguardando projeção.'}<br><small>Previsão estatística permanece auditável; a previsão ajustada reconcilia o mês com a meta sem ultrapassar os limites configurados. Dias abertos sem lançamento não são tratados como fechamento.</small>`;
+  }
+  window.runPredictiveEngine = function(estabId,startStr,days,calFactor,treatMissingAsClosed){
+    garantirPoliticaAtualizada(); calFactor=Number(calFactor)||1; if(!estabId||!startStr)return [];
+    const start=safeDate(startStr), today=new Date(); today.setHours(0,0,0,0);
+    const allFat=(state.faturamentos||[]).filter(f=>f.estabelecimentoId===estabId).map(f=>({
+      data:f.data, fat:getFaturamentoLiquidoRegistro(f),
+      mesas:Number((state.indicadoresDiarios||[]).find(i=>i.estabelecimentoId===estabId&&i.data===f.data)?.mesasRealizadas)||0
+    })).filter(x=>x.fat>0).sort((a,b)=>a.data.localeCompare(b.data));
+    const eventos=(state.eventos||[]).filter(e=>!e.estabelecimentoId||e.estabelecimentoId===estabId);
+    const semEventos=allFat.filter(h=>!eventos.some(e=>h.data>=e.data&&h.data<=(e.dataFim||e.data)));
+    const valores=semEventos.map(x=>x.fat), med=mediana(valores), media=mediaAparada(valores), baseFat=media||med||state.config.novoNegocio?.fatBase||10000;
+    const peso=clamp((state.config.motor?.pesoRecente||70)/100,.1,.95);
+    const recentes=semEventos.slice(-30).map(x=>x.fat), tendencia=clamp(baseFat?(mediaAparada(recentes)||baseFat)/baseFat:1,.80,1.20);
+    const limS=Number(state.config.metaPolitica?.maxFatorSazonal)||1.30;
+    const ocorrenciaNoMes=data=>{const d=safeDate(data),p=new Date(d.getFullYear(),d.getMonth(),1);return Math.floor((d.getDate()-1+p.getDay())/7)+1;};
+    const grupoMediana=a=>a.length?mediana(a):0;
+    const perfis=Array.from({length:7},(_,dow)=>{
+      const a=semEventos.filter(x=>safeDate(x.data).getDay()===dow).sort((u,v)=>u.data.localeCompare(v.data));
+      const valsDia=a.map(x=>x.fat), centro=mediaAparada(valsDia)||baseFat, medDia=grupoMediana(valsDia)||baseFat;
+      const rec=a.slice(-10), pesos=rec.map((x,j)=>j+1), sw=pesos.reduce((s,v)=>s+v,0), recMed=sw?rec.reduce((s,x,j)=>s+x.fat*pesos[j],0)/sw:centro;
+      const fatorRecencia=clamp(recMed/centro,.90,1.10);
+      const desvios=valsDia.map(v=>Math.abs(v-medDia)/(medDia||1)).sort((x,y)=>x-y);
+      const erroPct=clamp((desvios[Math.floor(Math.max(0,desvios.length*.75-1))]||.14)*100,10,24);
+      const fatoresOcorrencia={};
+      for(let k=1;k<=5;k++){
+        const grupo=a.filter(x=>ocorrenciaNoMes(x.data)===k).map(x=>x.fat);
+        // Dois anos já formam evidência; shrinkage reduz a instabilidade sem zerar a diferença real.
+        const fator=grupo.length?grupoMediana(grupo)/medDia:1, confianca=clamp(grupo.length/4,0,1);
+        fatoresOcorrencia[k]=clamp((1-confianca*.78)+confianca*.78*fator,.78,1.22);
+      }
+      return {fator:clamp(centro/baseFat,.75,limS),fatorRecencia,fatoresOcorrencia,erroPct,n:valsDia.length};
+    });
+    window.__forecastDowProfiles=perfis;
+    const mesStats=Array.from({length:12},(_,m)=>{const a=semEventos.filter(x=>safeDate(x.data).getMonth()===m).map(x=>x.fat);return a.length?clamp(mediaAparada(a)/baseFat,.88,limS):1;});
+    const obterFatorData=(iso,dow,oc)=>{
+      const d=safeDate(iso), perfil=perfis[dow], hist=semEventos.filter(x=>{const h=safeDate(x.data);return h.getMonth()===d.getMonth()&&h.getDay()===dow;});
+      const exatos=hist.filter(x=>ocorrenciaNoMes(x.data)===oc).map(x=>x.fat);
+      const proximos=hist.map(x=>({x,dist:Math.abs(ocorrenciaNoMes(x.data)-oc)})).sort((a,b)=>a.dist-b.dist).slice(0,6).map(z=>z.x.fat);
+      const ref=grupoMediana(exatos)||grupoMediana(proximos)||mediana(hist.map(x=>x.fat))||baseFat;
+      const centro=mediana(hist.map(x=>x.fat))||baseFat;
+      const n=exatos.length, pesoRef=n>=2?.78:n===1?.50:.28;
+      // O fator é derivado do histórico comparável; não usa seno, ruído ou arredondamento para criar variação.
+      return clamp(1+pesoRef*(ref/centro-1),.78,1.22);
+    };
+    const bruto=[];
+    for(let i=0;i<days;i++){
+      const d=new Date(start); d.setDate(start.getDate()+i); const iso=isoDate(d),mes=dataMes(d),open=isOperationalOpen(estabId,iso);
+      const realRec=(state.faturamentos||[]).find(f=>f.estabelecimentoId===estabId&&f.data===iso), real=realRec?getFaturamentoLiquidoRegistro(realRec):null;
+      const zeroRec=realRec&&real<=0, evt=eventos.find(e=>iso>=e.data&&iso<=(e.dataFim||e.data));
+      const closed=zeroRec||(!open&&!realRec)||!!(evt&&evt.tipo==='fechado'&&!realRec);
+      if(closed){bruto.push({data:iso,dia:getDayOfWeek(iso),isClosed:true,previsto:0,previstoBase:0,previsaoEstatistica:0,previsaoAjustada:0,real:real??0,mesReferencia:mes,evt:zeroRec?'Fechado (Faturamento zero / calendário)':(evt?.nome||'Fechado (Calendário)'),mesas:0,tkt:0});continue;}
+      const dow=d.getDay(), perfil=perfis[dow], oc=ocorrenciaNoMes(iso), fatorOc=obterFatorData(iso,dow,oc);
+      const fator=clamp((1-peso)+peso*tendencia,.82,1.18)*clamp(perfil.fator*perfil.fatorRecencia*fatorOc,.70,1.40)*clamp(mesStats[d.getMonth()],.88,1.15)*calFactor;
+      let v=baseFat*fator;
+      if(evt&&evt.tipo!=='fechado'){const imp=Number(evt.impactoEsperado)||0;v*=clamp(1+imp/100,.70,1.35);}
+      const tktVals=semEventos.filter(x=>x.mesas>0&&safeDate(x.data).getDay()===dow).map(x=>x.fat/x.mesas), tktGeral=semEventos.filter(x=>x.mesas>0).map(x=>x.fat/x.mesas), tkt=mediaAparada(tktVals)||mediaAparada(tktGeral)||state.config.novoNegocio?.tktBase||200;
+      bruto.push({data:iso,dia:getDayOfWeek(iso),isClosed:false,previsto:v,previstoBase:v,previsaoEstatistica:v,real,mesReferencia:mes,evt:evt?.nome||'',mesas:Math.max(1,Math.round(v/tkt)),tkt,erroHistoricoPct:perfil.erroPct,sazonalPareada:true});
+    }
+    const grupos={}; bruto.filter(p=>!p.isClosed).forEach(p=>(grupos[p.mesReferencia] ||= []).push(p));
+    Object.entries(grupos).forEach(([mes,rows])=>{
+      const meta=mesMeta(estabId,mes), alvo=Number(meta?.faturamentoAlvo)||0, realizado=somarRealizado(estabId,mes,rows[0].data), temRealizado=rows.some(p=>safeDate(p.data)<=today), restante=temRealizado?Math.max(0,alvo-realizado):alvo;
+      const elegiveis=rows.filter(p=>!temRealizado||p.data>today), somaEst=elegiveis.reduce((s,p)=>s+p.previsaoEstatistica,0), pol=garantirPoliticaAtualizada();
+      const fatorMeta=alvo&&somaEst>0?clamp(restante/somaEst,1-pol.limiteInferior,1+pol.limiteSuperior):1;
+      rows.forEach(p=>{const aplicar=!temRealizado||p.data>today,key=estabId+'_'+p.data,manual=clamp(Number(state.ajustesPrevisao?.[key])||0,-15,15),alvoDia=aplicar?p.previsaoEstatistica*fatorMeta:p.previsaoEstatistica;p.metaMensal=alvo;p.realizadoAcumulado=realizado;p.metaRestante=restante;p.fatorReconciliação=fatorMeta;p.desvioBruto=alvo&&somaEst?((somaEst/alvo)-1)*100:null;p.desafioMeta=p.desvioBruto;p.previsaoAjustada=alvoDia;p.calibracaoMeta={valor:alvoDia,limitado:alvo&&Math.abs(fatorMeta-1)>.001,ajuste:(fatorMeta-1)*100};p.pesoMeta=alvo?1:0;p.desvioManual=manual;p.previsto=alvoDia*(1+manual/100);p.mesas=Math.max(1,Math.round(p.previsto/(p.tkt||1)));p.classificacaoMeta=classificarDesafioMeta(p.desafioMeta);});
+    });
+    const abertos=bruto.filter(p=>!p.isClosed&&p.previsto>0); for(let i=1;i<abertos.length;i++){const a=abertos[i-1],b=abertos[i];if(Math.abs(a.previsto-b.previsto)<.01&&Math.abs(a.tkt-b.tkt)<.01&&a.dia!==b.dia){a.alertaRepeticao=b.alertaRepeticao='Projeções consecutivas iguais entre dias da semana diferentes';}}
+    atualizarResumoMensal(bruto,estabId); return bruto;
+  };
+  window.calcularPesosMetaMes = function(mes,diasMes,diarias,estabId){ const pesos=[], aberto=[]; for(let d=1;d<=diasMes;d++){const iso=mes+'-'+String(d).padStart(2,'0'), ok=estabId?isOperationalOpen(estabId,iso):true; const w=ok?(Number(parseCurrency(diarias?.[safeDate(iso).getDay()]))||1):0; pesos.push(w); if(ok)aberto.push(iso);} const soma=pesos.reduce((a,v)=>a+v,0)||1; return {pesos,soma,aberto}; };
+  window.rodarBacktest = function(){ const id=$('prevEstab')?.value; if(!id)return alert('Selecione o estabelecimento.'); const rows=runPredictiveEngine(id,isoDate(new Date(Date.now()-90*86400000)),90,1,false).filter(p=>p.real>0&&!p.isClosed); if(!rows.length)return alert('Dados insuficientes para backtest.'); const abs=rows.reduce((s,p)=>s+Math.abs(p.real-p.previsto),0), real=rows.reduce((s,p)=>s+p.real,0), prev=rows.reduce((s,p)=>s+p.previsto,0), wape=real?abs/real*100:0, bias=real?(prev-real)/real*100:0; $('backtestResult').innerHTML=`<div class="alert alert-info mt-3"><strong>Backtest — 90 dias (${rows.length} dias com realizado)</strong><br>WAPE: ${wape.toFixed(1)}% · Viés: ${bias>=0?'+':''}${bias.toFixed(1)}% · Previsto: ${formatCurrency(prev)} · Real: ${formatCurrency(real)}<br><small>${wape<=15?'Excelente':wape<=30?'Aceitável':'Requer calibração'} · MAPE não é usado como métrica principal quando há dias zerados.</small></div>`; };
+})();
+</script>
 </body>
 </html>
